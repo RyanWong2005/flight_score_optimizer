@@ -1,0 +1,19 @@
+venv/
+.venv/
+__pycache__/
+*.pyc
+.ipynb_checkpoints/
+outputs/*.png
+outputs/*.csv
+.vscode/
+
+# Secrets / local config
+.env
+
+# OS junk
+.DS_Store
+Thumbs.db
+
+# Packaging / tooling
+*.egg-info/
+.pytest_cache/
