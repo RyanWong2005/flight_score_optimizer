@@ -3,8 +3,9 @@ venv/
 __pycache__/
 *.pyc
 .ipynb_checkpoints/
-outputs/*.png
-outputs/*.csv
+output/
+output/*.png
+output/*.csv
 .vscode/
 
 # Secrets / local config
