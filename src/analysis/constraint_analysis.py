@@ -10,9 +10,9 @@ from utils.paths import INPUT_DATA, OUTPUT_DIR
 from utils.database_reader import load_database
 
 from tools.grid import build_grid
-from analysis.design_point import DesignPoint, design_point
+from tools.design_point import DesignPoint, design_point
 
-from analysis.TW_PW_conversion import (
+from tools.TW_PW_conversion import (
     tw_to_pw,
     speed_at_cl,
     pw_per_n_to_per_kg,

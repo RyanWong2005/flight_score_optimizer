@@ -16,6 +16,9 @@ Array = npt.NDArray[np.float64]
 CONSTANT_A = 0.4387
 CONSTANT_B = 0.8347
 
+# ---------------------------------------------------------
+# Gross weight estimation based on payload
+# ---------------------------------------------------------
 
 @dataclass(frozen=True)
 class EmptyWeightResult:
@@ -366,15 +369,87 @@ def estimate_gross_weight_grid(
     }
 
 
+# ---------------------------------------------------------
+# Payload estimation based on gross weight
+# ---------------------------------------------------------
+
+@dataclass(frozen=True)
+class PayloadCapacityResult:
+    gross_weight: float
+    empty_weight: float
+    battery_weight: float
+    payload_weight: float
+
+    empty_weight_fraction: float
+    battery_fraction: float
+    payload_fraction: float
+
+
+def estimate_payload_capacity(
+    gross_weight: float,
+    battery_weight: float,
+    a: float = CONSTANT_A,
+    b: float = CONSTANT_B,
+) -> PayloadCapacityResult:
+
+    """
+    Reverse weight estimation.
+
+    Given:
+        Gross weight
+        Fixed battery weight
+
+    Calculate:
+        Empty weight
+        Available payload weight
+        Corresponding weight fractions
+    """
+
+    if not np.isfinite(gross_weight) or gross_weight <= 0:
+        raise ValueError("Gross weight must be positive.")
+
+    if not np.isfinite(battery_weight) or battery_weight < 0:
+        raise ValueError("Battery weight must be non-negative.")
+
+    if not np.isfinite(a) or not (0 < a < 1):
+        raise ValueError("Invalid regression coefficient a.")
+
+    if not np.isfinite(b):
+        raise ValueError("Invalid regression coefficient b.")
+
+    # Empty weight regression
+    empty_weight = np.exp(
+        a * np.log(gross_weight) + b
+    )
+
+    # Remaining payload capacity
+    payload_weight = (
+        gross_weight
+        - empty_weight
+        - battery_weight
+    )
+
+    if payload_weight < 0:
+        raise ValueError(
+            "Empty weight and battery weight exceed gross weight."
+        )
+
+    return PayloadCapacityResult(
+        gross_weight=gross_weight,
+        empty_weight=empty_weight,
+        battery_weight=battery_weight,
+        payload_weight=payload_weight,
+
+        empty_weight_fraction=empty_weight / gross_weight,
+        battery_fraction=battery_weight / gross_weight,
+        payload_fraction=payload_weight / gross_weight,
+    )
+
 # =============================================================
 # TESTING
 # =============================================================
 
 if __name__ == "__main__":
-
-    # ---------------------------------------------------------
-    # Option 1: Battery weight fraction
-    # ---------------------------------------------------------
 
     result = estimate_gross_weight(
         payload_weight=7.58,       # kg
