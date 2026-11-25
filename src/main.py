@@ -18,7 +18,15 @@ from analysis.weight_estimation import (
 from limitations.geometry import wingspan_is_feasible
 from limitations.performance import (
     cruise_stall_speed_is_feasible,
+    endurance_is_feasible,
     gross_weight_is_feasible,
+    MIN_ENDURANCE_MIN,
+)
+
+from aerodynamics.aero import lift_induced_drag_factor
+from performance.endurance import (
+    calculate_endurance_hours,
+    endurance_hours_to_minutes,
 )
 
 from plotting.flight_score_plot import (
@@ -226,6 +234,7 @@ def main():
                         "stall_speed_m_s": np.nan,
                         "wing_area_m2": np.nan,
                         "span_m": np.nan,
+                        "endurance_min": np.nan,
 
                         "gross_weight_kg": gross_weight_grid[i_cfg, i_ar, i_v],
                         "empty_weight_kg": empty_weight_grid[i_cfg, i_ar, i_v],
@@ -276,6 +285,10 @@ def main():
                 )[dp.index]
             )
 
+            induced_drag_factor = float(
+                lift_induced_drag_factor(np.asarray(ar), p)
+            )
+
             # Every configuration occupies all bottle slots. The configured
             # number are full and all remaining slots carry empty bottles.
             for i_cfg, full_bottle_count in enumerate(MAX_BOTTLES):
@@ -301,6 +314,13 @@ def main():
                 wing_area = float(geometry["wing_area_m2"])
                 span = float(geometry["span_m"])
                 stall_speed = float(aerodynamics["V_stall_m_s"])
+                endurance_hours = calculate_endurance_hours(
+                    p=p,
+                    weight_n=float(geometry["weight_N"]),
+                    wing_area_m2=wing_area,
+                    induced_drag_factor=induced_drag_factor,
+                )
+                endurance_min = endurance_hours_to_minutes(endurance_hours)
 
                 failed_limitations = []
 
@@ -318,6 +338,11 @@ def main():
                 if not gross_weight_is_feasible(gross_weight):
                     failed_limitations.append(
                         "gross weight >= 24.94331066 kg"
+                    )
+
+                if not endurance_is_feasible(endurance_min):
+                    failed_limitations.append(
+                        f"endurance < {MIN_ENDURANCE_MIN:g} min"
                     )
 
                 is_feasible = not failed_limitations
@@ -356,6 +381,7 @@ def main():
                     "stall_speed_m_s": stall_speed,
                     "wing_area_m2": wing_area,
                     "span_m": span,
+                    "endurance_min": endurance_min,
                     **weight_summary,
                     "full_bottle_config": int(full_bottle_count),
                     "full_bottles": int(full_bottle_count),
