@@ -14,7 +14,11 @@ from analysis.weight_estimation import (
     estimate_gross_weight_grid,
 )
 
-from tools.scoring import optimize_bottles
+from limitations.geometry import wingspan_is_feasible
+from limitations.performance import (
+    cruise_stall_speed_is_feasible,
+    gross_weight_is_feasible,
+)
 
 from plotting.flight_score_plot import (
     plot_score_surfaces,
@@ -36,10 +40,8 @@ EMPTY_BOTTLE_WEIGHT_KG = 0.453592
 FULL_BOTTLE_SCORE = 11
 EMPTY_BOTTLE_SCORE = 3
 
-# Maximum combined number of bottles.
-# One bottle configuration is evaluated for every value from
-# MAX_BOTTLES_START to MAX_BOTTLES_END (inclusive) in steps of 
-# MAX_BOTTLES_STEP.
+# Total bottle slots carried in every configuration. Each configuration
+# varies the number of full bottles; all remaining slots carry empty bottles.
 MAX_BOTTLES_START = 1
 MAX_BOTTLES_END = 7
 MAX_BOTTLES_STEP = 1
@@ -62,13 +64,24 @@ PLOT_OUTPUT_DIR = OUTPUT_DIR / "plots"
 
 def main():
 
-    if MAX_BOTTLES.size == 0:
+    if (
+        MAX_BOTTLES_END < 1
+        or MAX_BOTTLES_START < 1
+        or MAX_BOTTLES_STEP < 1
+        or MAX_BOTTLES.size == 0
+        or MAX_BOTTLES[-1] > MAX_BOTTLES_END
+    ):
         raise ValueError(
-            "MAX_BOTTLES is empty. Check MAX_BOTTLES_START, "
-            "MAX_BOTTLES_END, and MAX_BOTTLES_STEP."
+            "Bottle configurations must contain between 1 and "
+            "MAX_BOTTLES_END full bottles, with a positive step."
         )
 
     n_config = MAX_BOTTLES.size
+    empty_bottle_counts = MAX_BOTTLES_END - MAX_BOTTLES
+    payload_weight_by_config = (
+        MAX_BOTTLES * FULL_BOTTLE_WEIGHT_KG
+        + empty_bottle_counts * EMPTY_BOTTLE_WEIGHT_KG
+    )
 
     # ------------------------------------------------------
     # 1. Run constraint analysis
@@ -101,16 +114,13 @@ def main():
     # 3. Determine design feasibility
     # ------------------------------------------------------
 
-    feasible_grid = np.zeros(
-        (n_ar, n_v),
-        dtype=bool,
-    )
+    design_feasible_grid = np.zeros((n_ar, n_v), dtype=bool)
 
     for i_ar in range(n_ar):
 
         for i_v in range(n_v):
 
-            feasible_grid[i_ar, i_v] = (
+            design_feasible_grid[i_ar, i_v] = (
                 design_points[(i_ar, i_v)] is not None
             )
 
@@ -118,9 +128,9 @@ def main():
     # 4. Estimate gross weight for every AR-V combination
     # ------------------------------------------------------
 
-    payload_weight_grid = np.full(
-        (n_ar, n_v),
-        float(p["payload_mass_historical_kg"]),
+    payload_weight_grid = np.broadcast_to(
+        payload_weight_by_config[:, None, None],
+        (n_config, n_ar, n_v),
     )
 
     weight_results = estimate_gross_weight_grid(
@@ -140,35 +150,13 @@ def main():
     print("WEIGHT ESTIMATION")
     print("=" * 60)
 
-    print(
-        f"Gross weight:          "
-        f"{gross_weight_grid[0, 0]:.4f} kg"
-    )
-
-    print(
-        f"Empty weight:          "
-        f"{empty_weight_grid[0, 0]:.4f} kg"
-    )
-
-    print(
-        f"Battery weight:        "
-        f"{battery_weight_grid[0, 0]:.4f} kg"
-    )
-
-    print(
-        f"Payload weight:        "
-        f"{weight_results['payload_weight'][0, 0]:.4f} kg"
-    )
-
-    print(
-        f"Payload fraction:      "
-        f"{payload_fraction_grid[0, 0]:.4f}"
-    )
-
-    print(
-        f"Battery fraction:      "
-        f"{battery_fraction_grid[0, 0]:.4f}"
-    )
+    for i_cfg, full_bottle_count in enumerate(MAX_BOTTLES):
+        print(
+            f"{full_bottle_count} full + "
+            f"{empty_bottle_counts[i_cfg]} empty: "
+            f"payload {payload_weight_by_config[i_cfg]:.6f} kg, "
+            f"gross {gross_weight_grid[i_cfg, 0, 0]:.4f} kg"
+        )
 
     # ------------------------------------------------------
     # 5. Initialize output arrays
@@ -182,25 +170,10 @@ def main():
         np.nan,
     )
 
-    cruise_power_grid = np.full(
-        (n_ar, n_v),
-        np.nan,
-    )
-
-    cruise_drag_grid = np.full(
-        (n_ar, n_v),
-        np.nan,
-    )
-
-    wing_area_grid = np.full(
-        (n_ar, n_v),
-        np.nan,
-    )
-
-    span_grid = np.full(
-        (n_ar, n_v),
-        np.nan,
-    )
+    feasible_grid = np.broadcast_to(
+        design_feasible_grid,
+        (n_config, n_ar, n_v),
+    ).copy()
 
     full_bottle_grid = np.full(
         (n_config, n_ar, n_v),
@@ -228,25 +201,13 @@ def main():
 
             dp = design_points[(i_ar, i_v)]
 
-            weight_summary = {
-
-                "gross_weight_kg": gross_weight_grid[i_ar, i_v],
-                "empty_weight_kg": empty_weight_grid[i_ar, i_v],
-                "battery_weight_kg": battery_weight_grid[i_ar, i_v],
-                "payload_weight_kg": weight_results["payload_weight"][i_ar, i_v],
-                "empty_weight_fraction": empty_weight_fraction_grid[i_ar, i_v],
-                "battery_fraction": battery_fraction_grid[i_ar, i_v],
-                "payload_fraction": payload_fraction_grid[i_ar, i_v],
-
-            }
-
             # ----------------------------------------------
             # Infeasible design combination
             # ----------------------------------------------
 
             if dp is None:
 
-                for max_bottles in MAX_BOTTLES:
+                for i_cfg, full_bottle_count in enumerate(MAX_BOTTLES):
 
                     summary.append({
 
@@ -261,21 +222,29 @@ def main():
                         "cruise_drag_N": np.nan,
                         "cruise_power_W": np.nan,
 
+                        "stall_speed_m_s": np.nan,
                         "wing_area_m2": np.nan,
                         "span_m": np.nan,
 
-                        **weight_summary,
+                        "gross_weight_kg": gross_weight_grid[i_cfg, i_ar, i_v],
+                        "empty_weight_kg": empty_weight_grid[i_cfg, i_ar, i_v],
+                        "battery_weight_kg": battery_weight_grid[i_cfg, i_ar, i_v],
+                        "payload_weight_kg": weight_results["payload_weight"][i_cfg, i_ar, i_v],
+                        "empty_weight_fraction": empty_weight_fraction_grid[i_cfg, i_ar, i_v],
+                        "battery_fraction": battery_fraction_grid[i_cfg, i_ar, i_v],
+                        "payload_fraction": payload_fraction_grid[i_cfg, i_ar, i_v],
 
-                        "max_bottles": int(max_bottles),
+                        "full_bottle_config": int(full_bottle_count),
 
-                        "full_bottles": np.nan,
-                        "empty_bottles": np.nan,
-                        "total_bottles": np.nan,
+                        "full_bottles": int(full_bottle_count),
+                        "empty_bottles": int(empty_bottle_counts[i_cfg]),
+                        "total_bottles": MAX_BOTTLES_END,
 
                         "flight_score": np.nan,
 
                         "governing": "",
                         "limited_by": "",
+                        "limitations_failed": "",
 
                     })
 
@@ -306,129 +275,95 @@ def main():
                 )[dp.index]
             )
 
-            # ----------------------------------------------
-            # Calculate aerodynamic and geometric values
-            # ----------------------------------------------
+            # Every configuration occupies all bottle slots. The configured
+            # number are full and all remaining slots carry empty bottles.
+            for i_cfg, full_bottle_count in enumerate(MAX_BOTTLES):
 
-            design_parameters = p.copy()
-            design_parameters["mass_kg"] = float(
-                gross_weight_grid[i_ar, i_v]
-            )
+                gross_weight = float(gross_weight_grid[i_cfg, i_ar, i_v])
+                design_parameters = p.copy()
+                design_parameters["mass_kg"] = gross_weight
 
-            derived = derived_values(
-                p=design_parameters,
-                dp=dp,
-                tw_req=tw_req,
-                ar=ar,
-                velocity=velocity,
-            )
-
-            geometry = derived["WING GEOMETRY"]
-
-            propulsion = derived["PROPULSION"]
-
-            cruise_drag = float(
-                propulsion["cruise_drag_N"]
-            )
-
-            cruise_power = float(
-                propulsion["cruise_power_W"]
-            )
-
-            wing_area = float(
-                geometry["wing_area_m2"]
-            )
-
-            span = float(
-                geometry["span_m"]
-            )
-
-            cruise_power_grid[i_ar, i_v] = cruise_power
-
-            cruise_drag_grid[i_ar, i_v] = cruise_drag
-
-            wing_area_grid[i_ar, i_v] = wing_area
-
-            span_grid[i_ar, i_v] = span
-
-            # ----------------------------------------------
-            # Optimize bottle configuration for every
-            # maximum bottle count
-            # ----------------------------------------------
-
-            for i_cfg, max_bottles in enumerate(MAX_BOTTLES):
-
-                bottle_result = optimize_bottles(
-
-                    payload_weight=float(
-                        weight_results["payload_weight"][i_ar, i_v]
-                    ),
-
-                    full_bottle_weight=FULL_BOTTLE_WEIGHT_KG,
-
-                    empty_bottle_weight=EMPTY_BOTTLE_WEIGHT_KG,
-
-                    full_bottle_score=FULL_BOTTLE_SCORE,
-
-                    empty_bottle_score=EMPTY_BOTTLE_SCORE,
-
-                    max_bottles=int(max_bottles),
-
+                derived = derived_values(
+                    p=design_parameters,
+                    dp=dp,
+                    tw_req=tw_req,
+                    ar=ar,
+                    velocity=velocity,
                 )
 
-                # ----------------------------------------------
-                # Store results in grids
-                # ----------------------------------------------
+                geometry = derived["WING GEOMETRY"]
+                aerodynamics = derived["AERODYNAMICS"]
+                propulsion = derived["PROPULSION"]
 
-                score_grid[i_cfg, i_ar, i_v] = (
-                    bottle_result.flight_score
+                cruise_drag = float(propulsion["cruise_drag_N"])
+                cruise_power = float(propulsion["cruise_power_W"])
+                wing_area = float(geometry["wing_area_m2"])
+                span = float(geometry["span_m"])
+                stall_speed = float(aerodynamics["V_stall_m_s"])
+
+                failed_limitations = []
+
+                if not wingspan_is_feasible(span):
+                    failed_limitations.append("wingspan >= 96 in")
+
+                if not cruise_stall_speed_is_feasible(
+                    velocity,
+                    stall_speed,
+                ):
+                    failed_limitations.append(
+                        "cruise speed < 1.3 x stall speed"
+                    )
+
+                if not gross_weight_is_feasible(gross_weight):
+                    failed_limitations.append(
+                        "gross weight >= 24.94331066 kg"
+                    )
+
+                is_feasible = not failed_limitations
+                feasible_grid[i_cfg, i_ar, i_v] = is_feasible
+
+                empty_bottle_count = int(empty_bottle_counts[i_cfg])
+                full_bottle_grid[i_cfg, i_ar, i_v] = full_bottle_count
+                empty_bottle_grid[i_cfg, i_ar, i_v] = empty_bottle_count
+
+                flight_score = (
+                    int(full_bottle_count) * FULL_BOTTLE_SCORE
+                    + empty_bottle_count * EMPTY_BOTTLE_SCORE
                 )
 
-                full_bottle_grid[i_cfg, i_ar, i_v] = (
-                    bottle_result.full_bottles
-                )
+                if is_feasible:
+                    score_grid[i_cfg, i_ar, i_v] = flight_score
 
-                empty_bottle_grid[i_cfg, i_ar, i_v] = (
-                    bottle_result.empty_bottles
-                )
-
-                # ----------------------------------------------
-                # Store summary information
-                # ----------------------------------------------
+                weight_summary = {
+                    "gross_weight_kg": gross_weight,
+                    "empty_weight_kg": empty_weight_grid[i_cfg, i_ar, i_v],
+                    "battery_weight_kg": battery_weight_grid[i_cfg, i_ar, i_v],
+                    "payload_weight_kg": weight_results["payload_weight"][i_cfg, i_ar, i_v],
+                    "empty_weight_fraction": empty_weight_fraction_grid[i_cfg, i_ar, i_v],
+                    "battery_fraction": battery_fraction_grid[i_cfg, i_ar, i_v],
+                    "payload_fraction": payload_fraction_grid[i_cfg, i_ar, i_v],
+                }
 
                 summary.append({
-
                     "AR": ar,
                     "V_m_s": velocity,
-
-                    "feasible": True,
-
+                    "feasible": is_feasible,
                     "WS_design_N_m2": dp.ws,
                     "PW_design_W_kg": dp.pw,
-
                     "cruise_drag_N": cruise_drag,
                     "cruise_power_W": cruise_power,
-
+                    "stall_speed_m_s": stall_speed,
                     "wing_area_m2": wing_area,
                     "span_m": span,
-
                     **weight_summary,
-
-                    "max_bottles": int(max_bottles),
-
-                    "full_bottles": bottle_result.full_bottles,
-                    "empty_bottles": bottle_result.empty_bottles,
-
-                    "total_bottles": (
-                        bottle_result.full_bottles
-                        + bottle_result.empty_bottles
-                    ),
-
-                    "flight_score": bottle_result.flight_score,
-
+                    "full_bottle_config": int(full_bottle_count),
+                    "full_bottles": int(full_bottle_count),
+                    "empty_bottles": empty_bottle_count,
+                    "total_bottles": MAX_BOTTLES_END,
+                    "flight_score": flight_score if is_feasible else np.nan,
                     "governing": dp.governing,
                     "limited_by": dp.limited_by,
-
+                    "limitations_failed": "; ".join(failed_limitations),
                 })
 
     # ------------------------------------------------------
@@ -474,11 +409,12 @@ def main():
 
         score_grids=score_grid,
 
-        feasible_grid=feasible_grid,
+        feasible_grid=design_feasible_grid,
 
         labels=[
-            f"max {max_bottles} bottle{'s' if max_bottles != 1 else ''}"
-            for max_bottles in MAX_BOTTLES
+            f"{full_bottles} full + "
+            f"{MAX_BOTTLES_END - full_bottles} empty"
+            for full_bottles in MAX_BOTTLES
         ],
 
         save_path=(
@@ -496,7 +432,7 @@ def main():
 
         V_grid=V_grid,
 
-        feasible_grid=feasible_grid,
+        feasible_grid=np.any(feasible_grid, axis=0),
 
         save_path=(
             PLOT_OUTPUT_DIR / "design_feasibility.png"
@@ -517,11 +453,18 @@ def main():
         print("=" * 60)
 
         print(
-            f"{'Max':>5} {'Score':>7} {'Full':>6} {'Empty':>6} "
+            f"{'Full cfg':>8} {'Score':>7} {'Full':>6} {'Empty':>6} "
             f"{'Total':>6} {'AR':>8} {'V [m/s]':>9}"
         )
 
-        for i_cfg, max_bottles in enumerate(MAX_BOTTLES):
+        for i_cfg, full_bottle_count in enumerate(MAX_BOTTLES):
+
+            if not np.any(np.isfinite(score_grid[i_cfg])):
+                print(
+                    f"{full_bottle_count:>5d} "
+                    f"{'n/a':>7} {'n/a':>6} {'n/a':>6} {'n/a':>6}"
+                )
+                continue
 
             best_index = np.unravel_index(
                 np.nanargmax(score_grid[i_cfg]),
@@ -533,7 +476,7 @@ def main():
             best_empty = empty_bottle_grid[i_cfg][best_index]
 
             print(
-                f"{max_bottles:>5d} "
+                f"{full_bottle_count:>5d} "
                 f"{score_grid[i_cfg][best_index]:>7.0f} "
                 f"{best_full:>6.0f} "
                 f"{best_empty:>6.0f} "
@@ -551,7 +494,11 @@ def main():
 
         print("-" * 60)
 
-        print(f"Best max bottles:        {MAX_BOTTLES[best_cfg]}")
+        print(
+            f"Best full-bottle config: "
+            f"{MAX_BOTTLES[best_cfg]} full + "
+            f"{empty_bottle_counts[best_cfg]} empty"
+        )
 
         print(f"Best aspect ratio:       {AR_grid[best_ar, best_v]:.4f}")
 
@@ -573,9 +520,9 @@ def main():
     # 10. Completion summary
     # ------------------------------------------------------
 
-    feasible_count = np.count_nonzero(feasible_grid)
+    feasible_count = np.count_nonzero(np.any(feasible_grid, axis=0))
 
-    total_count = feasible_grid.size
+    total_count = design_feasible_grid.size
 
     print("\n" + "=" * 60)
     print("SCORING ANALYSIS COMPLETED")
@@ -591,11 +538,15 @@ def main():
     )
 
     print(
-        f"Payload weight:        "
-        f"{weight_results['payload_weight'][0, 0]:.4f} kg"
+        f"Payload sweep:         "
+        f"{payload_weight_by_config.min():.4f}–"
+        f"{payload_weight_by_config.max():.4f} kg"
     )
 
-    print(f"Maximum bottles:       {MAX_BOTTLES.tolist()}")
+    print(
+        f"Full-bottle configs:   "
+        f"{MAX_BOTTLES.tolist()} (each carries {MAX_BOTTLES_END} bottles)"
+    )
 
     print(f"CSV output:            {SCORING_OUTPUT_FILE}")
 

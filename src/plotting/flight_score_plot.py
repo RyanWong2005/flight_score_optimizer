@@ -135,7 +135,7 @@ def plot_score_surface(
 # =============================================================
 
 # Ordinal blue ramp (dark -> light) used to color configurations
-# in order of increasing bottle limit, so the lowest-scoring surface
+# in order of increasing full-bottle count, so the lowest-scoring surface
 # is the darkest and the upper surfaces stay light enough to see through.
 _ORDINAL_CMAP = LinearSegmentedColormap.from_list(
     "ordinal_blue",
@@ -256,7 +256,7 @@ def plot_score_surfaces(
     ax.set_zlabel("Flight score")
 
     ax.set_title(
-        "Aircraft Flight Score Optimization by Bottle Limit"
+        "Aircraft Flight Score Optimization by Bottle Configuration"
     )
 
     _save_figure(fig, save_path)
