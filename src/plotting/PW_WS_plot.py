@@ -19,6 +19,11 @@ def plot_baseline(
     *,
     ar: float,
     velocity: float,
+    cl_max_required: Array,
+    cl_max_available: float,
+    cl_max_required_at_stall_limit: float,
+    target_stall_speed: float,
+    close: bool = True,
 ) -> None:
 
     # ------------------------------------------------------------ #
@@ -26,6 +31,7 @@ def plot_baseline(
     # ------------------------------------------------------------ #
 
     fig, ax = plt.subplots(figsize=(8, 5))
+    cl_ax = ax.twinx()
 
     # ------------------------------------------------------------ #
     # P/W Constraint Curves
@@ -33,6 +39,37 @@ def plot_baseline(
 
     for name, y in pw_curves.items():
         ax.plot(ws, y, label=name)
+
+    cl_ax.plot(
+        ws,
+        cl_max_required,
+        color="tab:purple",
+        linestyle="-.",
+        label=f"Required CL,max at {target_stall_speed:.1f} m/s",
+    )
+    cl_ax.axhline(
+        cl_max_available,
+        color="tab:green",
+        linestyle=":",
+        label=f"Clean CL,max at AR = {ar:.2f}",
+    )
+    stall_ws_limit = ws_limits["stall"]
+    if ws[0] <= stall_ws_limit <= ws[-1]:
+        cl_ax.hlines(
+            cl_max_required_at_stall_limit,
+            xmin=stall_ws_limit,
+            xmax=ws[-1],
+            color="tab:red",
+            linestyle="--",
+            label="Required CL,max at stall W/S limit",
+        )
+        cl_ax.plot(
+            stall_ws_limit,
+            cl_max_required_at_stall_limit,
+            marker="o",
+            color="tab:red",
+            markersize=4,
+        )
 
     # ------------------------------------------------------------ #
     # W/S Limits
@@ -69,9 +106,16 @@ def plot_baseline(
 
     ax.set_xlabel("W/S [N/m²]")
     ax.set_ylabel("P/W [W/kg]")
+    cl_ax.set_ylabel("Required CL,max [-]")
 
     ax.grid(True, alpha=0.3)
-    ax.legend(fontsize=8)
+    handles, labels = ax.get_legend_handles_labels()
+    cl_handles, cl_labels = cl_ax.get_legend_handles_labels()
+    ax.legend(
+        handles + cl_handles,
+        labels + cl_labels,
+        fontsize=8,
+    )
 
     # ------------------------------------------------------------ #
     # Save Figure
@@ -80,4 +124,5 @@ def plot_baseline(
     path.parent.mkdir(parents=True, exist_ok=True)
 
     fig.savefig(path, dpi=150, bbox_inches="tight")
-    plt.close(fig)
+    if close:
+        plt.close(fig)

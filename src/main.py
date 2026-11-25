@@ -1,6 +1,7 @@
 
 import csv
 
+import matplotlib.pyplot as plt
 import numpy as np
 
 from utils.paths import OUTPUT_DIR
@@ -87,7 +88,7 @@ def main():
     # 1. Run constraint analysis
     # ------------------------------------------------------
 
-    results = run_constraint_analysis()
+    results = run_constraint_analysis(close_plots=False)
 
     p = results["parameters"]
 
@@ -421,7 +422,9 @@ def main():
             PLOT_OUTPUT_DIR / "flight_score_surface.png"
         ),
 
-        show=True,
+        show=False,
+
+        close=False,
 
     )
 
@@ -438,9 +441,13 @@ def main():
             PLOT_OUTPUT_DIR / "design_feasibility.png"
         ),
 
-        show=True,
+        show=False,
+
+        close=False,
 
     )
+
+    plt.show(block=True)
 
     # ------------------------------------------------------
     # 9. Identify best design point for each configuration

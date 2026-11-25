@@ -26,6 +26,7 @@ from aerodynamics.aero import (
 from plotting.PW_WS_plot import plot_baseline
 
 from constraints.cruise_airspeed import cruise_speed_tw
+from constraints.clmax_stall import stall_ws_max_clean
 from constraints.ground_run_distance import ground_run_dist_tw
 from constraints.level_const_velocity_turn import level_turn_tw
 from constraints.max_angle_of_climb import max_aoc_tw
@@ -516,7 +517,7 @@ def write_case_output(
 # MAIN
 # ==========================================================
 
-def main():
+def main(*, close_plots=True):
 
     # ------------------------------------------------------
     # 1. Load baseline database
@@ -540,6 +541,8 @@ def main():
 
     WS_3D = WS_VALUES[None, None, :]
 
+    clean_stall_ws_sweep = stall_ws_max_clean(AR, p)
+
     # ------------------------------------------------------
     # 3. Run constraint analysis
     # ------------------------------------------------------
@@ -549,6 +552,10 @@ def main():
         AR_3D,
         V_3D,
         WS_3D,
+    )
+
+    cl_max_required_at_stall_limit = (
+        ws_limits["stall"] / p["dynamic_pressure_stall_pa"]
     )
 
     # Expected dimensions:
@@ -800,6 +807,23 @@ def main():
 
             velocity=float(V[0, i_v]),
 
+            cl_max_required=(
+                WS_VALUES / p["dynamic_pressure_stall_pa"]
+            ),
+
+            cl_max_available=(
+                float(clean_stall_ws_sweep[i_ar, 0])
+                / p["dynamic_pressure_stall_pa"]
+            ),
+
+            cl_max_required_at_stall_limit=(
+                cl_max_required_at_stall_limit
+            ),
+
+            target_stall_speed=p["target_stall_speed_m_per_s"],
+
+            close=close_plots,
+
         )
 
     # ------------------------------------------------------
@@ -819,6 +843,17 @@ def main():
     print(SEP)
 
     print("CONSTRAINT ANALYSIS COMPLETED")
+
+    print(
+        f"Clean CL,max at AR {float(AR[PLOT_AR_INDEX, 0]):.2f}: "
+        f"{float(clean_stall_ws_sweep[PLOT_AR_INDEX, 0]) / p['dynamic_pressure_stall_pa']:.3f}"
+    )
+
+    print(
+        f"Required CL,max at stall W/S limit "
+        f"({ws_limits['stall']:.1f} N/m²): "
+        f"{cl_max_required_at_stall_limit:.3f}"
+    )
 
     print(f"AR points: {AR.shape[0]}")
 

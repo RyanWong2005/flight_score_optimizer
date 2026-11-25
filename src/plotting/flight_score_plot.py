@@ -38,12 +38,13 @@ def _save_figure(fig, save_path):
         )
 
 
-def _display_figure(fig, show):
+def _display_figure(fig, show, close=True):
     try:
         if show:
             plt.show(block=True)
     finally:
-        plt.close(fig)
+        if close:
+            plt.close(fig)
 
 
 # =============================================================
@@ -163,6 +164,7 @@ def plot_score_surfaces(
         labels,
         save_path=None,
         show=False,
+        close=True,
 ):
     """
     Plot one flight-score surface per configuration on a shared
@@ -261,7 +263,7 @@ def plot_score_surfaces(
 
     _save_figure(fig, save_path)
 
-    _display_figure(fig, show)
+    _display_figure(fig, show, close)
     
 
 # =============================================================
@@ -274,6 +276,7 @@ def plot_feasibility(
     feasible_grid,
     save_path=None,
     show=False,
+    close=True,
 ):
 
     AR_grid, V_grid, feasible_grid = _validate_grids(
@@ -335,7 +338,7 @@ def plot_feasibility(
 
     _save_figure(fig, save_path)
 
-    _display_figure(fig, show)
+    _display_figure(fig, show, close)
 
 
 # =============================================================
