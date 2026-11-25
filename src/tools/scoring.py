@@ -4,9 +4,7 @@ import numpy as np
 
 
 @dataclass(frozen=True)
-class ScoringResult:
-
-    payload_weight: float
+class BottleResult:
 
     full_bottles: int
     empty_bottles: int
@@ -14,112 +12,115 @@ class ScoringResult:
     full_weight: float
     empty_weight: float
 
-    flight_score: float
+    total_payload_used: float
+    remaining_payload: float
+
+    flight_score: int
 
 
 def optimize_bottles(
     payload_weight: float,
-    full_bottle_weight: float = 2.1,
-    empty_bottle_weight: float = 0.05,
+
+    full_bottle_weight: float = 1.81437,
+    empty_bottle_weight: float = 0.453592,
+
     full_bottle_score: int = 11,
     empty_bottle_score: int = 3,
-    max_full_bottles: int | None = None,
-    max_empty_bottles: int | None = None,
-) -> ScoringResult:
+
+    max_bottles: int | None = None,
+) -> BottleResult:
 
     """
-    Determine the optimal integer combination of full and
-    empty bottles that maximizes flight score.
+    Integer optimization of full and empty bottle quantities.
 
-    Constraint:
-        W_full + W_empty <= payload_weight
+    Objective:
+        Maximize full_bottle_score*N_full + empty_bottle_score*N_empty
+        (default: 11*N_full + 3*N_empty)
+
+    Constraints:
+        full_bottle_weight*N_full + empty_bottle_weight*N_empty
+            <= payload_weight
+        (default: 1.81437*N_full + 0.453592*N_empty, in kg)
+
+        N_full + N_empty <= max_bottles (if specified)
+
+        N_full, N_empty are non-negative integers.
     """
 
-    if payload_weight < 0:
-        raise ValueError("Payload weight cannot be negative.")
+    if not np.isfinite(payload_weight) or payload_weight < 0:
+        raise ValueError("Invalid payload weight.")
 
     if full_bottle_weight <= 0 or empty_bottle_weight <= 0:
         raise ValueError("Bottle weights must be positive.")
 
+    if max_bottles is not None and max_bottles < 0:
+        raise ValueError("Maximum bottle count cannot be negative.")
+
+    # Maximum possible full bottles based on payload weight.
+
     max_full = int(payload_weight // full_bottle_weight)
 
-    if max_full_bottles is not None:
-        max_full = min(max_full, max_full_bottles)
+    if max_bottles is not None:
+        max_full = min(max_full, max_bottles)
 
     best_score = -1
+
     best_full = 0
     best_empty = 0
 
+    # Enumerate every possible full bottle count.
+
     for n_full in range(max_full + 1):
 
-        remaining_weight = (
-            payload_weight - n_full * full_bottle_weight
+        remaining = (
+            payload_weight
+            - n_full * full_bottle_weight
         )
+
+        # Maximum empty bottles for this full bottle count.
 
         n_empty = int(
-            remaining_weight // empty_bottle_weight
+            remaining // empty_bottle_weight
         )
 
-        if max_empty_bottles is not None:
-            n_empty = min(n_empty, max_empty_bottles)
+        if max_bottles is not None:
+
+            n_empty = min(
+                n_empty,
+                max_bottles - n_full
+            )
 
         score = (
-            full_bottle_score * n_full
-            + empty_bottle_score * n_empty
+            n_full * full_bottle_score
+            + n_empty * empty_bottle_score
         )
 
         if score > best_score:
 
             best_score = score
+
             best_full = n_full
             best_empty = n_empty
 
+    # Calculate final payload utilization.
+
     full_weight = best_full * full_bottle_weight
+
     empty_weight = best_empty * empty_bottle_weight
 
-    return ScoringResult(
-        payload_weight=payload_weight,
+    total_used = full_weight + empty_weight
+
+    return BottleResult(
+
         full_bottles=best_full,
         empty_bottles=best_empty,
+
         full_weight=full_weight,
         empty_weight=empty_weight,
+
+        total_payload_used=total_used,
+
+        remaining_payload=payload_weight - total_used,
+
         flight_score=best_score,
     )
-
-
-def optimize_bottles_grid(
-    payload_grid: np.ndarray,
-    **kwargs,
-):
-
-    """
-    Apply bottle optimization to an entire payload array.
-    """
-
-    payload_grid = np.asarray(payload_grid, dtype=float)
-
-    score_grid = np.full(payload_grid.shape, np.nan)
-    full_grid = np.full(payload_grid.shape, np.nan)
-    empty_grid = np.full(payload_grid.shape, np.nan)
-
-    for index in np.ndindex(payload_grid.shape):
-
-        payload = payload_grid[index]
-
-        if not np.isfinite(payload) or payload < 0:
-            continue
-
-        result = optimize_bottles(
-            payload_weight=float(payload),
-            **kwargs
-        )
-
-        score_grid[index] = result.flight_score
-        full_grid[index] = result.full_bottles
-        empty_grid[index] = result.empty_bottles
-
-    return {
-        "score": score_grid,
-        "full_bottles": full_grid,
-        "empty_bottles": empty_grid,
-    }

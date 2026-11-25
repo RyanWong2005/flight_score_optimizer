@@ -5,7 +5,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 import numpy.typing as npt
 
-from analysis.design_point import DesignPoint
+from tools.design_point import DesignPoint
 
 Array = npt.NDArray[np.float64]
 

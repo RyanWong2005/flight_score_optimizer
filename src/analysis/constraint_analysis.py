@@ -279,7 +279,11 @@ def derived_values(
 
     g = p["gravity_sea_level_m_per_s2"]
     rho = p["competition_density_kg_m3"]
-    mass = p["mass_kg"]
+    mass = (
+        p["mass_kg"]
+        if "mass_kg" in p
+        else p["mtow_mass_kg"]
+    )
 
     cd0 = p["cd_min_unitless"]
 
@@ -830,6 +834,20 @@ def main():
     print(f"Output directory: {OUTPUT_DIR}")
 
     print(SEP)
+
+    return {
+        "parameters": p,
+        "AR": AR,
+        "V": V,
+        "design_points": design_points,
+        "ws_selected": ws_selected,
+        "pw_selected": pw_selected,
+        "tw": tw,
+        "pw_curves": pw_curves,
+        "ws_limits": ws_limits,
+        "q_cruise_grid": q_cruise_grid,
+        "units": units,
+    }
 
 
 # ==========================================================

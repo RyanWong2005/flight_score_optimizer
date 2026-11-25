@@ -453,7 +453,7 @@ if __name__ == "__main__":
 
     result = estimate_gross_weight(
         payload_weight=7.58,       # kg
-        battery_weight=0.24,  # fraction of gross weight
+        battery_weight=0.24,       # kg
         initial_guess=15.0,        # kg
     )
 
