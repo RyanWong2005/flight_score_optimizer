@@ -32,6 +32,8 @@ from performance.endurance import (
 from plotting.flight_score_plot import (
     plot_score_surfaces,
     plot_feasibility,
+    plot_metric_surface,
+    plot_metric_surfaces,
 )
 
 
@@ -179,6 +181,21 @@ def main():
         np.nan,
     )
 
+    cruise_cl_grid = np.full(
+        (n_ar, n_v),
+        np.nan,
+    )
+
+    pw_grid = np.full(
+        (n_ar, n_v),
+        np.nan,
+    )
+
+    endurance_grid = np.full(
+        (n_config, n_ar, n_v),
+        np.nan,
+    )
+
     feasible_grid = np.broadcast_to(
         design_feasible_grid,
         (n_config, n_ar, n_v),
@@ -260,6 +277,8 @@ def main():
 
                 continue
 
+            pw_grid[i_ar, i_v] = dp.pw
+
             # ----------------------------------------------
             # Extract T/W curves for this AR-V combination
             # ----------------------------------------------
@@ -309,6 +328,7 @@ def main():
                 aerodynamics = derived["AERODYNAMICS"]
                 propulsion = derived["PROPULSION"]
 
+                cruise_cl_grid[i_ar, i_v] = aerodynamics["CL_cruise"]
                 cruise_drag = float(propulsion["cruise_drag_N"])
                 cruise_power = float(propulsion["cruise_power_W"])
                 wing_area = float(geometry["wing_area_m2"])
@@ -321,6 +341,7 @@ def main():
                     induced_drag_factor=induced_drag_factor,
                 )
                 endurance_min = endurance_hours_to_minutes(endurance_hours)
+                endurance_grid[i_cfg, i_ar, i_v] = endurance_min
 
                 failed_limitations = []
 
@@ -427,6 +448,12 @@ def main():
         exist_ok=True,
     )
 
+    configuration_labels = [
+        f"{full_bottles} full + "
+        f"{MAX_BOTTLES_END - full_bottles} empty"
+        for full_bottles in MAX_BOTTLES
+    ]
+
     # Flight score surfaces (one per bottle configuration)
     plot_score_surfaces(
 
@@ -438,14 +465,137 @@ def main():
 
         feasible_grid=design_feasible_grid,
 
-        labels=[
-            f"{full_bottles} full + "
-            f"{MAX_BOTTLES_END - full_bottles} empty"
-            for full_bottles in MAX_BOTTLES
-        ],
+        labels=configuration_labels,
 
         save_path=(
             PLOT_OUTPUT_DIR / "flight_score_surface.png"
+        ),
+
+        show=False,
+
+        close=False,
+
+    )
+
+    # Weight surfaces (one per bottle configuration)
+    plot_metric_surfaces(
+
+        AR_grid=AR_grid,
+
+        V_grid=V_grid,
+
+        metric_grids=gross_weight_grid,
+
+        feasible_grid=design_feasible_grid,
+
+        labels=configuration_labels,
+
+        title="Aircraft Gross Weight by Bottle Configuration",
+
+        z_label="Gross Weight [kg]",
+
+        save_path=(
+            PLOT_OUTPUT_DIR / "gross_weight_surface.png"
+        ),
+
+        show=False,
+
+        close=False,
+
+    )
+
+    plot_metric_surfaces(
+
+        AR_grid=AR_grid,
+
+        V_grid=V_grid,
+
+        metric_grids=empty_weight_grid,
+
+        feasible_grid=design_feasible_grid,
+
+        labels=configuration_labels,
+
+        title="Aircraft Empty Weight by Bottle Configuration",
+
+        z_label="Empty Weight [kg]",
+
+        save_path=(
+            PLOT_OUTPUT_DIR / "empty_weight_surface.png"
+        ),
+
+        show=False,
+
+        close=False,
+
+    )
+
+    plot_metric_surfaces(
+
+        AR_grid=AR_grid,
+
+        V_grid=V_grid,
+
+        metric_grids=endurance_grid,
+
+        feasible_grid=design_feasible_grid,
+
+        labels=configuration_labels,
+
+        title="Aircraft Endurance by Bottle Configuration",
+
+        z_label="Endurance [min]",
+
+        save_path=(
+            PLOT_OUTPUT_DIR / "endurance_surface.png"
+        ),
+
+        show=False,
+
+        close=False,
+
+    )
+
+    plot_metric_surface(
+
+        AR_grid=AR_grid,
+
+        V_grid=V_grid,
+
+        metric_grid=cruise_cl_grid,
+
+        feasible_grid=design_feasible_grid,
+
+        title="Cruise Lift Coefficient",
+
+        z_label="Cruise C_L [-]",
+
+        save_path=(
+            PLOT_OUTPUT_DIR / "cruise_lift_coefficient_surface.png"
+        ),
+
+        show=False,
+
+        close=False,
+
+    )
+
+    plot_metric_surface(
+
+        AR_grid=AR_grid,
+
+        V_grid=V_grid,
+
+        metric_grid=pw_grid,
+
+        feasible_grid=design_feasible_grid,
+
+        title="Design Power-to-Weight Ratio",
+
+        z_label="P/W [W/kg]",
+
+        save_path=(
+            PLOT_OUTPUT_DIR / "power_to_weight_surface.png"
         ),
 
         show=False,

@@ -428,6 +428,7 @@ def plot_metric_surface(
     z_label,
     save_path=None,
     show=False,
+    close=True,
 ):
 
     AR_grid, V_grid, feasible_grid, metric_grid = _validate_grids(
@@ -470,4 +471,76 @@ def plot_metric_surface(
 
     _save_figure(fig, save_path)
 
-    _display_figure(fig, show)
+    _display_figure(fig, show, close)
+
+
+def plot_metric_surfaces(
+    AR_grid,
+    V_grid,
+    metric_grids,
+    feasible_grid,
+    labels,
+    title,
+    z_label,
+    save_path=None,
+    show=False,
+    close=True,
+):
+    """Plot one metric surface per configuration on a shared 3D axis."""
+
+    metric_grids = np.asarray(metric_grids, dtype=float)
+
+    if metric_grids.ndim != 3:
+        raise ValueError("metric_grids must have shape (n_config, n_ar, n_v).")
+
+    if len(labels) != metric_grids.shape[0]:
+        raise ValueError("One label is required per metric grid.")
+
+    AR_grid, V_grid, feasible_grid = _validate_grids(
+        AR_grid,
+        V_grid,
+        feasible_grid,
+        *metric_grids,
+    )[:3]
+
+    colors = _ordinal_colors(metric_grids.shape[0])
+
+    fig = plt.figure(figsize=(11, 8))
+
+    ax = cast(Axes3D, fig.add_subplot(111, projection="3d"))
+    fig.subplots_adjust(left=0.05, right=0.80, bottom=0.05, top=0.95)
+
+    legend_handles = []
+
+    for metric_grid, color, label in zip(metric_grids, colors, labels):
+        metric_plot = np.ma.masked_invalid(
+            np.ma.masked_where(~feasible_grid, metric_grid)
+        )
+
+        ax.plot_surface(
+            AR_grid,
+            V_grid,
+            metric_plot,
+            color=color,
+            edgecolor="none",
+            alpha=0.85,
+            shade=False,
+        )
+
+        legend_handles.append(Patch(facecolor=color, label=label))
+
+    ax.legend(
+        handles=legend_handles,
+        loc="upper left",
+        bbox_to_anchor=(1.02, 1.0),
+        frameon=False,
+    )
+
+    ax.set_xlabel("Aspect Ratio")
+    ax.set_ylabel("Cruise Velocity [m/s]")
+    ax.set_zlabel(z_label)
+    ax.set_title(title)
+
+    _save_figure(fig, save_path)
+
+    _display_figure(fig, show, close)
